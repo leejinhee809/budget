@@ -173,7 +173,12 @@ input[type=search]{-webkit-appearance:none}
     <h2>데이터 관리</h2>
     <div class="r"><button id="bk" class="bt">백업하기</button><button id="rs" class="g bt">백업 불러오기</button><button id="rz" class="x bt" style="border:1px solid var(--rd)">초기화</button></div>
     <div class="sb" id="bkm"></div>
-    <div class="r" style="margin:10px 0 0"><button id="sop" class="g bt">카드 자동 불러오기 설정 · 기억한 분류 보기</button></div>
+    <div class="r" style="margin:10px 0 0"><button id="sop" class="g bt">카드 불러오기 설정</button><button id="ceb" class="g bt">분류 설정</button></div>
+    <div id="ced" class="hide" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--ln)">
+      <h2>분류 설정 <span class="sb">이름을 누르면 수정</span></h2>
+      <div id="cel" style="display:flex;flex-wrap:wrap"></div>
+      <div class="r" style="margin:6px 0 0"><input id="cei" maxlength="10" placeholder="새 분류 이름"><button id="cea" style="flex:0 0 72px">추가</button></div>
+    </div>
     <input type="file" id="bkf" class="hide">
   </div>
 </div>
@@ -507,9 +512,54 @@ if(FSA)hGet().then(function(h){if(h)bmsg("백업 폴더: "+h.name)});
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 
 /* ===== 분류 · 모아보기 · 검색 ===== */
-var CATS=["식비","주유비","통신비","교육","공과금","쇼핑"],CARS=["렉스","미니"],catF=null; // 분류·차량을 늘리려면 이 목록에 추가
-var PICK=["쇼핑","식비","주유비","통신비","교육","공과금"]; // 분류 선택칸 순서 (자주 쓰는 것부터)
-(function(){var o=PICK.map(function(c){return '<option value="'+c+'">'+c+'</option>'}).join("")+'<option value="">분류 없음</option>';$("cat").innerHTML=o;$("fcat").innerHTML=o;$("cat").value="";$("fcat").value=""})();
+// 분류 목록은 앱에서 추가·삭제 (백업에도 포함)
+if(!S.cats)S.cats=["식비","주유비","통신비","교육","공과금","쇼핑","의료비"];
+var CATS=S.cats,CARS=["렉스","미니"],catF=null;
+// 분류 선택칸: 쇼핑·식비를 맨 위로, 맨 아래에 '분류 추가'
+function buildCatOpts(){
+  var top=["쇼핑","식비"].filter(function(c){return CATS.indexOf(c)>-1});
+  var list=top.concat(CATS.filter(function(c){return top.indexOf(c)<0}));
+  var o=list.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>'}).join("")+'<option value="">분류 없음</option><option value="__add">＋ 분류 추가…</option>';
+  ["cat","fcat"].forEach(function(id){var v=$(id).value;$(id).innerHTML=o;$(id).value=(v&&v!=="__add"&&list.indexOf(v)>-1)?v:""});
+}
+function addCat(name){
+  name=String(name||"").trim().slice(0,10);
+  if(!name)return "";
+  if(CATS.indexOf(name)<0){CATS.push(name);save()}
+  buildCatOpts();render();renderCatEdit();return name;
+}
+buildCatOpts();
+["cat","fcat"].forEach(function(id){
+  $(id).addEventListener("change",function(){
+    if(this.value!=="__add")return;
+    var nm=addCat(prompt("새 분류 이름 (예: 의료비, 미용, 경조사)"));
+    this.value=nm||"";
+  });
+});
+function renderCatEdit(){
+  $("cel").innerHTML=CATS.map(function(c){return '<span class="tg" style="font-size:14px;padding:2px 4px 2px 2px;margin:0 6px 8px 0;display:inline-flex;align-items:center"><button class="e" style="padding:4px 8px" data-cren="'+esc(c)+'">'+esc(c)+'</button><button class="x" style="padding:4px 6px" data-cdel="'+esc(c)+'">✕</button></span>'}).join("");
+}
+$("ceb").onclick=function(){var b=$("ced"),open=b.className.indexOf("hide")>-1;b.className=open?"":"hide";this.className=open?"c on bt":"g bt";renderCatEdit()};
+// 분류 이름 바꾸기: 기록된 내역·고정 지출·기억한 분류까지 함께 변경
+function renameCat(o,n){
+  n=String(n||"").trim().slice(0,10);if(!n||n===o)return;
+  if(CATS.indexOf(n)>-1){alert("'"+n+"' 분류가 이미 있어요.");return}
+  CATS[CATS.indexOf(o)]=n;
+  S.exp.forEach(function(e){if(e.c===o)e.c=n});
+  Object.keys(S.fixm||{}).forEach(function(k){S.fixm[k].forEach(function(f){if(f.c===o)f.c=n})});
+  (S.fix||[]).forEach(function(f){if(f.c===o)f.c=n});
+  var m=S.memo||{};Object.keys(m).forEach(function(k){if(m[k]===o)m[k]=n});
+  if(catF===o)catF=n;
+  save();buildCatOpts();render();renderCatEdit();
+}
+document.addEventListener("click",function(ev){var D=ev.target.dataset||{};if(D.cren!==undefined)renameCat(D.cren,prompt("'"+D.cren+"' 분류의 새 이름",D.cren))});
+$("cea").onclick=function(){if(addCat($("cei").value))$("cei").value=""};
+document.addEventListener("click",function(ev){
+  var D=ev.target.dataset||{};if(D.cdel===undefined)return;
+  if(!confirm("'"+D.cdel+"' 분류를 지울까요?\n(이미 기록된 내역은 그대로 남아요)"))return;
+  var i=CATS.indexOf(D.cdel);if(i>-1)CATS.splice(i,1);if(catF===D.cdel)catF=null;
+  save();buildCatOpts();render();renderCatEdit();
+});
 // '7개월 전' 같은 경과 표시
 function ago(d){
   var t=new Date(),y=+d.slice(0,4),m=+d.slice(5,7),dy=+d.slice(8,10);
@@ -625,12 +675,13 @@ $("sop").onclick=function(){$("sc").style.display="";$("sc").open=true;$("sop").
 var CAT_RULES=[
   {c:"주유비",re:FUEL_RE},
   {c:"통신비",re:/KT(?!X)|SKT|SK텔레콤|텔레콤|LG\s?U|유플러스|U\+|통신|알뜰폰/i},
+  {c:"의료비",re:/병원|의원|약국|치과|한의원|내과|외과|소아과|소아청소년과|이비인후과|안과|피부과|정형외과|산부인과|비뇨|정신건강|재활|클리닉|메디컬|보건소|건강검진|검진센터|한약/i},
   {c:"공과금",re:/한국전력|한전|전기요금|도시가스|가스공사|가스요금|수도|상수도|관리비|아파트관리/i},
   {c:"교육",re:/서점|문고|교보|영풍|알라딘|예스24|YES24|문구|학원|교육|교재|학습지/i},
   {c:"쇼핑",re:/네이버|NAVER|N\s?Pay|다이소|쿠팡(?!이츠)|11번가|G마켓|지마켓|옥션|스마트스토어|무신사|에이블리|지그재그|올리브영|아트박스|백화점|아울렛|유니클로|탑텐|자라|H&M|이케아|생활용품/i},
   {c:"식비",re:/식당|분식|핫도그|김밥|국밥|횟집|회센터|치킨|피자|버거|맥도날드|롯데리아|카페|커피|스타벅스|투썸|이디야|메가커피|메가MGC|컴포즈|빽다방|베이커리|제과|빵|떡|반찬|마트|편의점|GS25|CU|세븐일레븐|이마트|하나로|정육|수산|배달|요기요|쿠팡이츠|배민|음식|푸드|키친|순대|냉면|칼국수|짜장|중화|초밥|돈까스|고기|갈비|시장/i}
 ];
-function autoCat(m){m=m||"";for(var i=0;i<CAT_RULES.length;i++)if(CAT_RULES[i].re.test(m))return CAT_RULES[i].c;return ""}
+function autoCat(m){m=m||"";for(var i=0;i<CAT_RULES.length;i++)if(CATS.indexOf(CAT_RULES[i].c)>-1&&CAT_RULES[i].re.test(m))return CAT_RULES[i].c;return ""}
 // 내 신한카드 번호 표시 (문자: 신한(474)) — 카드가 바뀌면 이 숫자만 고치세요
 var MY_SHINHAN="474";
 // 시트 카드사 → 앱 결제수단
