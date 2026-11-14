@@ -1043,6 +1043,28 @@ document.addEventListener("click",function(ev){
     delete (S.depRule||{})[D.dpr];save();renderI();
   }
 });
+/* ===== 전기차 충전(나이스인프라)은 한 달에 한 줄로 합치기 =====
+   같은 달·같은 카드의 나이스인프라 결제를 한 항목에 금액·건수를 더함 */
+var EV_RE=/나이스\s*인프라|NICE\s*인프라/i;
+function evMerge(ne){
+  if(!EV_RE.test(ne.mer||ne.n||""))return false;
+  var mo=ne.d.slice(0,7);
+  var t=S.exp.filter(function(e){return e.ev&&e.d&&e.d.slice(0,7)===mo&&(e.w||"")===(ne.w||"")&&e.m===ne.m})[0];
+  var key=ne.d+"|"+ne.a;
+  if(!t){ne.ev=1;ne.cnt=1;ne.ks=[key];ne.sids=ne.sid?[ne.sid]:[];ne.mer="나이스인프라";ne.n="나이스인프라 (전기차 충전 1건)";S.exp.push(ne);return true}
+  t.a+=ne.a;t.cnt=(t.cnt||1)+1;(t.ks=t.ks||[]).push(key);if(ne.d>t.d)t.d=ne.d;
+  if(ne.sid){(t.sids=t.sids||[]).push(ne.sid);if(!t.sid)t.sid=ne.sid}
+  t.n="나이스인프라 (전기차 충전 "+t.cnt+"건)";
+  return true;
+}
+// 이미 따로 들어가 있던 나이스인프라 내역을 한 번 합치기
+(function(){
+  if(S.evMig)return;
+  var L=S.exp.filter(function(e){return e&&e.d&&!e.ev&&EV_RE.test(e.mer||e.n||"")});
+  S.exp=S.exp.filter(function(e){return L.indexOf(e)<0});
+  L.sort(function(a,b){return a.d<b.d?-1:1}).forEach(function(e){evMerge(e)});
+  S.evMig=1;if(L.length)save();
+})();
 function pull(manual){
   pullInc();
   if(!SY.url||!SY.tk){if(manual)smsg("웹앱 주소와 토큰을 입력하고 '설정 저장'을 눌러 주세요.",1);return}
@@ -1051,7 +1073,7 @@ function pull(manual){
   fetch(u).then(function(r){return r.json()}).then(function(j){
     if(!j||!j.ok)throw new Error(j&&j.error?j.error:"응답 오류");
     var have={},n=0,mx=S.syncSince||0;
-    S.exp.forEach(function(e){if(e.sid)have[e.sid]=1});
+    S.exp.forEach(function(e){if(e.sid)have[e.sid]=1;(e.sids||[]).forEach(function(x){have[x]=1})});
     (j.items||[]).forEach(function(it){
       var idn=Number(it.id)||0;if(idn>mx)mx=idn;
       if(have[it.id]||!(it.amount>0))return;
@@ -1060,7 +1082,7 @@ function pull(manual){
       if(it.card==="KB국민"||/국민/.test(it.card||"")){var km=kbMerchant(it.raw);if(km)mer=km}        // KB: 알림 끝의 사용처
       var ne={id:Date.now()+Math.random(),d:ymd(dt),n:mer+(cancel?" (취소)":""),a:cancel?-it.amount:it.amount,w:p.w,m:p.m,x:p.x||"",c:(S.memo&&S.memo[mkey({mer:mer})])||autoCat(mer),mer:mer,sid:it.id};
       if(/속초사랑/.test(p.m||"")){ne.raw=String(it.raw||"").slice(0,300);if(/현금영수증/.test(ne.raw))ne.rc="hu"} // 결제 방식 확인용
-      S.exp.push(ne);
+      if(!evMerge(ne))S.exp.push(ne);   // 나이스인프라는 그달 한 줄에 더하기
       n++;
     });
     S.syncSince=mx;save();render();
@@ -1509,7 +1531,10 @@ function impFromText(t){
   impShow();
 }
 function impKey(){var v=$("imp").value.split("|");return{w:v[0],m:v.slice(1).join("|")}}
-function impIsDup(x,k){return S.exp.some(function(e){return e.d===x.d&&e.a===x.a&&(e.w||"")===k.w&&e.m===k.m})}
+function impIsDup(x,k){
+  if(EV_RE.test(x.n))return S.exp.some(function(e){return e.ev&&(e.w||"")===k.w&&e.m===k.m&&(e.ks||[]).indexOf(x.d+"|"+x.a)>-1}); // 합쳐진 충전 내역 안에 있으면 중복
+  return S.exp.some(function(e){return e.d===x.d&&e.a===x.a&&(e.w||"")===k.w&&e.m===k.m});
+}
 function impShow(){
   var k=impKey(),D=IMP.data,nw=0,dp=0,sum=0;
   D.forEach(function(x){x.dup=impIsDup(x,k);if(x.dup)dp++;else{nw++;sum+=x.a}});
@@ -1532,7 +1557,7 @@ function impSave(){
   if(!add.length)return;
   ask(W[k.w]+" "+k.m+"(으)로 "+add.length+"건을 넣을까요?",function(){
     var t=Date.now();
-    add.forEach(function(x,i){S.exp.push({id:t+i+Math.random(),d:x.d,n:x.n,a:x.a,w:k.w,m:k.m,x:"",c:(S.memo&&S.memo[mkey({mer:x.n})])||autoCat(x.n),imp:1})});
+    add.forEach(function(x,i){var ne={id:t+i+Math.random(),d:x.d,n:x.n,a:x.a,w:k.w,m:k.m,x:"",c:(S.memo&&S.memo[mkey({mer:x.n})])||autoCat(x.n),imp:1};if(!evMerge(ne))S.exp.push(ne)});
     save();render();impShow();note(add.length+"건을 넣었어요. 매일 지출에서 달을 넘겨 확인해 보세요.");
   },"넣기");
 }
