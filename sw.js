@@ -1,6 +1,6 @@
 /* 가계부 서비스 워커 — 앱 화면은 최신 우선, 그림 파일은 저장본 우선
    업데이트를 올릴 때 아래 버전 숫자를 하나 올리면 확실히 새로 받아요. */
-const CACHE = 'gagyebu-v16';
+const CACHE = 'gagyebu-v17';
 const ASSETS = ['./', './index.html', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
 

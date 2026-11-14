@@ -664,7 +664,7 @@ async function pickDir(){
   await hSet(h);return h;
 }
 async function doBackup(forcePick){
-  var txt=pack(),name="가계부_백업_"+stamp()+".json";
+  var d0=new Date(),txt=pack(),name="가계부_"+String(d0.getFullYear()).slice(2)+"-"+pad(d0.getMonth()+1)+"-"+pad(d0.getDate())+".json";   // 예: 가계부_26-11-14.json
   if(FSA){
     try{
       var h=forcePick?null:await hGet();
@@ -1002,9 +1002,6 @@ function depKwMatch(it){
   return null;
 }
 var depPulling=false;
-// 남편 입금 기본 키워드 (한 번만 추가, 설정에서 지우거나 더할 수 있음)
-if(!S.depKwInit){S.depKw=S.depKw||[];["치안활동비","성과상여금","강원청급여"].forEach(function(k){
-  if(!S.depKw.some(function(r){return r.k===k}))S.depKw.push({k:k,n:k,w:"hu",to:"hu"})});S.depKwInit=1}
 $("dka").onclick=function(){
   var k=$("dkk").value.trim(),n=$("dkn").value.trim(),w=$("dkw").value;
   if(!k||!n){note("키워드와 수입 항목을 적어 주세요.");return}
