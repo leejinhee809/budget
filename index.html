@@ -90,6 +90,13 @@ input[type=search]{-webkit-appearance:none}
 .yt th:first-child,.yt td:first-child{text-align:left}
 .yt th{color:var(--sub);font-weight:400}
 .yt tr.on td{color:var(--rd);font-weight:700}
+
+/* 접기·펼치기 카드 */
+.card>h2.ct{cursor:pointer;user-select:none;margin-bottom:0}
+.card>h2.ct::after{content:"▾";float:right;color:var(--sub);font-size:14px}
+.card.cc>h2.ct::after{content:"▸"}
+.card>.cbd{margin-top:12px}
+.card.cc>.cbd{display:none}
 </style>
 </head>
 <body>
@@ -1045,7 +1052,8 @@ document.addEventListener("click",function(ev){
 });
 /* ===== 전기차 충전(나이스인프라)은 한 달에 한 줄로 합치기 =====
    같은 달·같은 카드의 나이스인프라 결제를 한 항목에 금액·건수를 더함 */
-var EV_RE=/나이스\s*인프라|NICE\s*인프라/i;
+// 띄어쓰기·(주)·주식회사·영문 표기와 상관없이 알아봄
+var EV_RE={test:function(t){return /나이스인프라|NICE인프라|NICEINFRA/i.test(String(t||"").replace(/[\s()（）㈜]/g,"").replace(/주식회사/g,""))}};
 function evMerge(ne){
   if(!EV_RE.test(ne.mer||ne.n||""))return false;
   var mo=ne.d.slice(0,7);
@@ -1058,13 +1066,15 @@ function evMerge(ne){
   return true;
 }
 // 이미 따로 들어가 있던 나이스인프라 내역을 한 번 합치기
-(function(){
-  if(S.evMig)return;
-  var L=S.exp.filter(function(e){return e&&e.d&&!e.ev&&EV_RE.test(e.mer||e.n||"")});
+// 낱개로 남은 나이스인프라 내역을 달·카드별 한 줄로 합치기 (앱 열 때·불러올 때마다)
+function evMergeAll(){
+  var L=S.exp.filter(function(e){return e&&e.d&&!e.ev&&e.a&&EV_RE.test(e.mer||e.n||"")});
+  if(!L.length)return 0;
   S.exp=S.exp.filter(function(e){return L.indexOf(e)<0});
   L.sort(function(a,b){return a.d<b.d?-1:1}).forEach(function(e){evMerge(e)});
-  S.evMig=1;if(L.length)save();
-})();
+  save();return L.length;
+}
+evMergeAll();
 function pull(manual){
   pullInc();
   if(!SY.url||!SY.tk){if(manual)smsg("웹앱 주소와 토큰을 입력하고 '설정 저장'을 눌러 주세요.",1);return}
@@ -1085,7 +1095,7 @@ function pull(manual){
       if(!evMerge(ne))S.exp.push(ne);   // 나이스인프라는 그달 한 줄에 더하기
       n++;
     });
-    S.syncSince=mx;save();render();
+    S.syncSince=mx;evMergeAll();save();render();
     smsg(n?"✔ 새 결제 "+n+"건을 매일 지출에 넣었어요 ("+hm()+")":"새 결제 내역이 없어요 ("+hm()+")");
     if(syncErr||manual===true&&justSaved){syncErr=false;justSaved=false;setTimeout(syncVis,1500)} // 저장 직후 성공하면 잠시 결과를 보여 주고 숨김
   }).catch(function(e){
@@ -1585,6 +1595,40 @@ function impSave(){
   $("imgo").onclick=impSave;
   document.addEventListener("change",function(ev){var k=ev.target.dataset&&ev.target.dataset.imc;if(!k)return;
     if(ev.target.value==="")delete IMP.map[k];else IMP.map[k]=+ev.target.value;impBuild()});
+})();
+</script>
+<script>
+/* ===== 맨 위 요약·이번 달 카드값 합계 빼고 모든 카드 접기·펼치기 =====
+   제목(h2)을 누르면 접히고, 상태는 이 휴대폰에 기억 */
+(function(){
+  var KEY="gagyebu:fold",st={};try{st=JSON.parse(localStorage.getItem(KEY)||"{}")||{}}catch(e){}
+  // 처음엔 입력하는 칸은 펼치고, 나머지는 접어 둠
+  var OPEN={"지출 기록":1,"고정 지출":1,"수입 기록":1,"지금 쓸 결제수단":1};
+  // 제목 글자(뒤에 붙은 작은 설명 제외)
+  function nameOf(h){var t="";h.childNodes.forEach(function(x){if(x.nodeType===3)t+=x.textContent});return (t||h.textContent).replace(/\s+/g," ").trim().slice(0,20)}
+  function keyOf(h){return h.getAttribute("data-k")||(h.id?"#"+h.id:nameOf(h))}
+  function setOpen(card,open){card.classList.toggle("cc",!open)}
+  document.querySelectorAll(".w .card").forEach(function(card){
+    if(card.tagName==="DETAILS"||card.id==="qr")return;
+    var h=card.firstElementChild;if(!h||h.tagName!=="H2")return;
+    var k=keyOf(h);h.setAttribute("data-k",k);h.classList.add("ct");
+    var bd=document.createElement("div");bd.className="cbd";
+    while(h.nextSibling)bd.appendChild(h.nextSibling);
+    card.appendChild(bd);
+    setOpen(card,st.hasOwnProperty(k)?st[k]:!!OPEN[nameOf(h)]);
+    h.addEventListener("click",function(ev){
+      if(ev.target.closest("button,input,select,a"))return;
+      var open=card.classList.contains("cc");setOpen(card,open);
+      st[k]=open;try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}
+    });
+  });
+  // [수정]을 누르면 입력 칸이 있는 카드를 자동으로 펼침
+  function openBy(id){var el=document.getElementById(id);var c=el&&el.closest(".card");if(c)setOpen(c,true)}
+  document.addEventListener("click",function(ev){
+    var D=ev.target.dataset||{};
+    if(D.e)openBy("nm");if(D.fe)openBy("fn");if(D.ie)openBy("inm");if(D.le)openBy("lnm");
+    if(D.oe&&D.w)openBy("oi_"+D.w);
+  },true);
 })();
 </script>
 <script>if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).catch(function(){})}</script>
