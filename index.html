@@ -121,10 +121,10 @@ input[type=search]{-webkit-appearance:none}
     <div class="sm"><span>고정 지출</span><span id="sf">0원</span></div>
   </div>
 
-  <div class="card">
-    <h2>분류별 모아보기</h2>
-    <div class="cg" id="cg"></div>
-  </div>
+  <details class="card" id="cgc">
+    <summary><b>분류별 모아보기</b> <span class="sb">누르면 펼쳐져요</span></summary>
+    <div class="cg" id="cg" style="margin-top:10px"></div>
+  </details>
 
   <div class="tabs"><button id="t1" class="on">매일 지출</button><button id="t2">고정 지출</button><button id="t3">남편 카드</button><button id="t4">ME 카드</button><button id="t5">수익</button><button id="t6">연말정산</button></div>
 
@@ -406,7 +406,7 @@ function render(){
   $("flsum").textContent=FL.length?FL.length+"건 · "+won(sf):"없음";   // 접혀 있어도 건수·합계 표시
   var allCo=FL.length>0&&FL.every(function(f){return f.co});
   $("fl").innerHTML=FL.length?FL.map(function(f){
-    return '<div class="it"><div class="n">'+esc(f.n)+(f.c?'<span class="tg">'+esc(f.c)+'</span>':'')+(flab(f)?'<div class="sb">'+esc(flab(f))+'</div>':'')+'</div><div>'+won(f.a)+'</div><button class="e" data-fe="'+f.id+'">수정</button><button class="c'+(f.co?' on':'')+'" data-fco="'+f.id+'">이월</button><button class="x" data-f="'+f.id+'">삭제</button></div>'
+    return '<div class="it"><div class="n">'+esc(f.n)+(f.c?'<span class="tg">'+esc(f.c)+'</span>':'')+(flab(f)?'<div class="sb">'+esc(flab(f))+'</div>':'')+fixPick(f)+'</div><div>'+won(f.a)+'</div><button class="e" data-fe="'+f.id+'">수정</button><button class="c'+(f.co?' on':'')+'" data-fco="'+f.id+'">이월</button><button class="x" data-f="'+f.id+'">삭제</button></div>'
   }).join("")+'<div class="dh"><span>합계</span><span>'+won(sf)+'</span></div><div class="r" style="margin-top:10px"><button class="g" style="flex:1" data-fall="1">'+(allCo?'전체 이월 해제':'전체 이월')+'</button></div>':'<div class="em">이 달에 등록된 고정 지출이 없어요.</div>';
   $("lssum").textContent=list.length?list.length+"건 · "+won(list.reduce(function(s,e){return s+e.a},0)):"없음";
   var note=catF?'<div class="dh" style="align-items:center"><span><b>'+esc(cn)+'</b>만 보는 중</span><button class="c" data-catoff="1">전체 보기</button></div>':'';
@@ -815,6 +815,20 @@ function chakPick(e){
   var b=function(v,t){return '<button class="c'+(e.rc===v?' on':'')+'" data-rc="'+e.id+'|'+v+'" style="font-size:12px;padding:2px 10px;margin-right:4px">'+t+'</button>'};
   return '<div style="margin-top:4px">'+b("me","카드")+b("hu","현금")+(e.rc?'':'<span class="sb" style="color:var(--rd)">선택해 주세요</span>')+'</div>';
 }
+// 고정 지출: 현금 → 영수증 O/X, 속초사랑 상품권 → 체크카드/현금 (이름별로 한 번 고르면 매달 적용)
+function fixPick(f){
+  if(typeof yeType!=="function"||!S.ye)return "";
+  var key=(f.w||"")+"|"+f.m,n=esc(f.n),bs='style="font-size:12px;padding:2px 10px;margin-right:4px"';
+  if(isChakKey(key)){
+    var v=(S.ye.frc||{})[f.n];
+    return '<div style="margin-top:4px"><button class="c'+(v==="me"?' on':'')+'" data-frc="'+n+'|me" '+bs+'>'+(f.w==="hu"?"체크카드":"카드")+'</button><button class="c'+(v==="hu"?' on':'')+'" data-frc="'+n+'|hu" '+bs+'>현금</button>'+(v?'':'<span class="sb" style="color:var(--rd)">선택해 주세요</span>')+'</div>';
+  }
+  if(yeType(key)==="cash"){
+    var x=(S.ye.nr||[]).indexOf(f.n)>-1,o=(S.ye.nrOk||[]).indexOf(f.n)>-1;
+    return '<div style="margin-top:4px"><button class="c'+(o?' on':'')+'" data-nr="'+n+'|o" '+bs+'>영수증 O</button><button class="c'+(x?' on':'')+'" data-nr="'+n+'|x" '+bs+'>영수증 X</button>'+(x||o?'':'<span class="sb" style="color:var(--rd)">선택해 주세요</span>')+'</div>';
+  }
+  return "";
+}
 function row(e,withDate){
   var sub=[];if(withDate)sub.push(e.d+" ("+ago(e.d)+")");if(lab(e))sub.push(lab(e));
   return '<div class="it"><div class="n">'+esc(e.n)+(e.c?'<span class="tg">'+esc(e.c)+'</span>':'')+(e.v&&e.v!=="-"?'<span class="tg">🚗 '+esc(e.v)+'</span>':'')+(e.sp?'<span class="tg">'+(e.sp==="mk"?"🏪 전통시장":"🚌 대중교통")+'</span>':'')+(e.nrx?'<span class="tg">영수증X</span>':'')+(e.sid?'<span class="tg">자동</span>':'')+(sub.length?'<div class="sb">'+esc(sub.join(" · "))+'</div>':'')+chakPick(e)+'</div><div'+(e.a<0?' style="color:var(--rd)"':'')+'>'+won(e.a)+'</div><button class="e" data-e="'+e.id+'">수정</button><button class="x" data-x="'+e.id+'">삭제</button></div>';
@@ -1179,7 +1193,13 @@ function yeAgg(y){
         if(tw){used[tw.id]=1;YE_DUP.push({key:"f:"+k+":"+f.id,n:f.n,a:f.a,d:k,why:"매일 지출 '"+(tw.n||"")+"'과 같음 (고정 지출)"});return}
       }
       if(isCashKey(fk)&&nr.indexOf(f.n)>-1)return;                  // 고정 지출: 이름으로 한 번만 확인
-      if(isChakKey(fk)){if(f.w==="hu"&&!(f.c&&(S.ye.ex||[]).indexOf(f.c)>-1))M[m-1].debit+=Number(f.a)||0;return} // 고정지출 남편 상품권은 체크
+      if(isChakKey(fk)){
+        if(f.c&&(S.ye.ex||[]).indexOf(f.c)>-1)return;
+        var rc=(S.ye.frc||{})[f.n],fa=Number(f.a)||0;
+        if(rc==="hu")M[m-1].cash+=fa;                  // 현금(남편 번호 현금영수증) → 남편·나 모두 현금영수증
+        else if(f.w==="hu")M[m-1].debit+=fa;           // 남편 상품권 카드(또는 미선택) → 체크카드
+        return;                                         // ME 상품권 카드 → 제외
+      }
       add(m-1,fk,f.c,f.a);
     });
   }
@@ -1389,6 +1409,8 @@ document.addEventListener("click",function(ev){
     if(v==="x"){if(j<0)L.push(n);if(q>-1)O.splice(q,1)}
     if(v==="o"){if(j>-1)L.splice(j,1);if(q<0)O.push(n)}
     save();render();}
+  else if(D.frc){var i3=D.frc.lastIndexOf("|"),fn3=D.frc.slice(0,i3),v3=D.frc.slice(i3+1),F=S.ye.frc=S.ye.frc||{};
+    F[fn3]=F[fn3]===v3?undefined:v3;save();render();}
   else if(D.nre){var i2=D.nre.lastIndexOf("|"),id=D.nre.slice(0,i2),v2=D.nre.slice(i2+1);
     S.exp.forEach(function(e){if(String(e.id)===id){e.nrx=v2==="x"?1:undefined;e.nro=v2==="o"?1:undefined}});save();render();}
   else if(D.ndu){delete (S.ye.nd||{})[D.ndu];save();render();note("다시 중복으로 빼서 한 번만 셌어요.");}
@@ -1622,6 +1644,8 @@ function impSave(){
       st[k]=open;try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}
     });
   });
+  var cgc=document.getElementById("cgc");
+  if(cgc){if(st["#cgc"])cgc.open=true;cgc.addEventListener("toggle",function(){st["#cgc"]=cgc.open;try{localStorage.setItem(KEY,JSON.stringify(st))}catch(e){}})}
   // [수정]을 누르면 입력 칸이 있는 카드를 자동으로 펼침
   function openBy(id){var el=document.getElementById(id);var c=el&&el.closest(".card");if(c)setOpen(c,true)}
   document.addEventListener("click",function(ev){
