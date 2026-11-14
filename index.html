@@ -271,7 +271,8 @@ input[type=search]{-webkit-appearance:none}
     <summary><b>📄 카드사 명세서 불러오기</b></summary>
     <div style="margin-top:12px">
       <div class="r"><select id="imp" style="flex:1"></select><select id="imy" style="flex:0 0 96px"></select></div>
-      <div class="r"><label class="g bt" style="flex:1;text-align:center;cursor:pointer">엑셀·CSV 파일 고르기<input id="imf" type="file" accept=".xlsx,.xls,.csv,.pdf" hidden></label></div>
+      <div class="r"><label class="g bt" style="flex:1;text-align:center;cursor:pointer">파일 고르기 (엑셀·CSV·PDF·사진)<input id="imf" type="file" accept=".xlsx,.xls,.csv,.pdf,image/*" hidden></label></div>
+      <div class="sb hide" id="imst" style="margin-bottom:6px"></div>
       
       <textarea id="imt" rows="4" placeholder="2026.01.05  이마트 속초점  32,000" style="width:100%;box-sizing:border-box"></textarea>
       <div class="r" style="margin-top:6px"><button id="imtb" class="g" style="flex:1">붙여 넣은 글 읽기</button></div>
@@ -1561,21 +1562,106 @@ function impBuild(){
   impShow();
 }
 // 붙여 넣은 글: 줄마다 날짜·금액을 찾고 나머지를 가맹점으로
+// 명세서에서 '이용 내역 표'에 해당하는 줄만 남기기
+//  - 표 제목 줄(이용일·가맹점·금액)이 있으면 그 아래부터 합계 줄 전까지만
+//  - 결제일·청구·한도·포인트·주소 같은 줄은 버림
+var IMP_SKIP=/결제\s*(예정|하실|일|금액|계좌)|청구|납부|출금|한도|포인트|적립|잔액|이월|연체|이용\s*기간|기간|고객|주소|우편|전화|고객센터|명세서|발행|카드번호|회원|안내|문의|소계|합계|총\s*(이용|금액|합)|누계/;
+var IMP_HEAD=/(이용|거래|승인|매출)\s*(일|일자)/;
+var IMP_HEAD2=/가맹점|이용처|이용\s*금액|승인\s*금액|금액/;
+function impTableLines(lines){
+  var hasHead=lines.some(function(l){return IMP_HEAD.test(l)&&IMP_HEAD2.test(l)});
+  var inT=!hasHead,out=[];
+  lines.forEach(function(l){
+    if(IMP_HEAD.test(l)&&IMP_HEAD2.test(l)){inT=true;return}          // 표 시작 (쪽마다 다시 나와도 됨)
+    if(hasHead&&/(^|\s)(합계|소계|총\s*이용|이용\s*금액\s*합계)/.test(l)){inT=false;return}  // 표 끝
+    if(!inT||IMP_SKIP.test(l))return;
+    if(/~/.test(l))return;                                              // 2026.10.01 ~ 10.31 같은 기간 줄
+    out.push(l);
+  });
+  return out;
+}
 function impFromText(t){
   var yHint=+$("imy").value||new Date().getFullYear();IMP.data=[];IMP.head=[];IMP.rows=[];
-  String(t||"").split(/\n+/).forEach(function(line){
+  impTableLines(String(t||"").split(/\n+/).map(function(l){return l.trim()}).filter(Boolean)).forEach(function(line){
     line=line.trim();if(!line)return;
     var dm=line.match(/(20\d{2}\s*[.\-\/]\s*\d{1,2}\s*[.\-\/]\s*\d{1,2}|\d{2}[.\-\/]\d{1,2}[.\-\/]\d{1,2}|\d{1,2}[.\/]\d{1,2})/);
     if(!dm)return;
-    var nums=line.replace(dm[0]," ").match(/-?\d{1,3}(,\d{3})+|-?\d{4,}/g);if(!nums)return;
-    var am=nums.map(function(x){return parseInt(x.replace(/,/g,""),10)}).filter(function(x){return Math.abs(x)>=100});if(!am.length)return;
+    var rest=line.replace(dm[0]," ").replace(/\d{1,2}:\d{2}(:\d{2})?/g," ");
+    var nums=rest.match(/-?\d{1,3}([,.]\d{3})+/g)||rest.match(/-?\d{4,7}(?!\d)/g);if(!nums)return;
+    var am=nums.map(function(x){return parseInt(x.replace(/[,.]/g,""),10)}).filter(function(x){return Math.abs(x)>=100});if(!am.length)return;
     var a=am[0],d=impDate(dm[0],yHint);if(!d)return;
-    var n=line.replace(dm[0]," ").replace(/-?\d{1,3}(,\d{3})+원?|-?\d{4,}원?/g," ").replace(/\d{1,2}:\d{2}(:\d{2})?/g," ")
+    var n=line.replace(dm[0]," ").replace(/-?\d{1,3}([,.]\d{3})+원?|-?\d{4,}원?/g," ").replace(/\d{1,2}:\d{2}(:\d{2})?/g," ")
       .replace(/일시불|할부|\d+개월|승인|원/g," ").replace(/\s+/g," ").trim();
     if(/취소/.test(line)&&a>0)a=-a;
     IMP.data.push({d:d,n:n.replace(/취소/g,"").trim()||"카드 결제",a:a});
   });
   impShow();
+}
+/* ===== PDF·사진에서 글자 뽑기 =====
+   PDF: 글자가 들어 있으면 그대로 뽑고, 스캔(그림) PDF면 쪽마다 글자 인식
+   사진: 글자 인식(한글+영문). 뽑은 글은 붙여 넣기 칸에 넣어서 고칠 수 있음 */
+function impSt(t){var e=$("imst");e.textContent=t||"";e.className="sb"+(t?"":" hide")}
+function impLib(src,test,cb){
+  if(test())return cb();
+  var sc=document.createElement("script");sc.src=src;
+  sc.onload=function(){cb()};sc.onerror=function(){impSt("");note("읽기 도구를 못 불러왔어요. 인터넷 연결을 확인해 주세요.")};
+  document.head.appendChild(sc);
+}
+var PDFJS="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+var TESS="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+function impUseText(t,src){
+  $("imt").value=t;impFromText(t);impSt("");
+  if(!IMP.data.length)note(src+"에서 글자는 뽑았지만 날짜·금액 줄을 못 찾았어요. 붙여 넣기 칸의 글을 고친 뒤 [붙여 넣은 글 읽기]를 눌러 주세요.");
+}
+// 같은 높이의 글자를 한 줄로 묶기
+function pdfLines(items){
+  var rows=[];
+  items.forEach(function(it){
+    if(!it.str||!it.str.trim())return;
+    var y=it.transform[5],x=it.transform[4],r=rows.filter(function(r){return Math.abs(r.y-y)<3})[0];
+    if(!r){r={y:y,c:[]};rows.push(r)}r.c.push({x:x,s:it.str});
+  });
+  rows.sort(function(a,b){return b.y-a.y});
+  return rows.map(function(r){return r.c.sort(function(a,b){return a.x-b.x}).map(function(c){return c.s.trim()}).join(" ")});
+}
+function impPdf(f){
+  impSt("PDF 여는 중…");
+  impLib(PDFJS+"pdf.min.js",function(){return !!window.pdfjsLib},function(){
+    pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS+"pdf.worker.min.js";
+    f.arrayBuffer().then(function(buf){return pdfjsLib.getDocument({data:buf}).promise}).then(function(pdf){
+      var out=[],pages=[];for(var i=1;i<=pdf.numPages;i++)pages.push(i);
+      return pages.reduce(function(p,n){return p.then(function(){
+        impSt("PDF 글자 뽑는 중… ("+n+"/"+pdf.numPages+"쪽)");
+        return pdf.getPage(n).then(function(pg){return pg.getTextContent().then(function(tc){out.push(pdfLines(tc.items).join("\n"))})});
+      })},Promise.resolve()).then(function(){
+        var t=out.join("\n").trim();
+        if(t.replace(/\s/g,"").length>30)return impUseText(t,"PDF");
+        // 글자가 없는 스캔 PDF → 쪽을 그림으로 바꿔 글자 인식
+        var imgs=[];
+        return pages.reduce(function(p,n){return p.then(function(){
+          impSt("스캔 PDF 그림 만드는 중… ("+n+"/"+pdf.numPages+"쪽)");
+          return pdf.getPage(n).then(function(pg){
+            var vp=pg.getViewport({scale:2}),cv=document.createElement("canvas");cv.width=vp.width;cv.height=vp.height;
+            return pg.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise.then(function(){imgs.push(cv)});
+          });
+        })},Promise.resolve()).then(function(){impImg(imgs)});
+      });
+    }).catch(function(e){impSt("");note("PDF를 읽지 못했어요: "+(e&&e.message?e.message:e)+"\n(비밀번호가 걸린 PDF면 풀고 다시 올려 주세요)")});
+  });
+}
+function impImg(list){
+  impSt("글자 인식 준비 중… (처음 한 번은 1분쯤 걸려요)");
+  impLib(TESS,function(){return !!window.Tesseract},function(){
+    var out=[],n=0;
+    Tesseract.createWorker("kor+eng",1,{logger:function(m){
+      if(m.status==="recognizing text")impSt("글자 인식 중… "+(n+1)+"/"+list.length+"장 "+Math.round((m.progress||0)*100)+"%");
+    }}).then(function(w){
+      return list.reduce(function(p,img){return p.then(function(){
+        return w.recognize(img).then(function(r){out.push(r.data.text);n++});
+      })},Promise.resolve()).then(function(){return w.terminate()});
+    }).then(function(){impUseText(out.join("\n"),"사진")})
+    .catch(function(e){impSt("");note("글자 인식에 실패했어요: "+(e&&e.message?e.message:e))});
+  });
 }
 function impKey(){var v=$("imp").value.split("|");return{w:v[0],m:v.slice(1).join("|")}}
 function impIsDup(x,k){
@@ -1614,7 +1700,8 @@ function impSave(){
   $("imy").value=cy-(new Date().getMonth()<2?1:0);
   $("imf").onchange=function(){
     var f=this.files&&this.files[0];if(!f)return;
-    if(/\.pdf$/i.test(f.name)){note("PDF는 여기서 바로 못 읽어요. 카드사 홈페이지에서 '엑셀 저장'으로 받거나, 화면의 내역을 복사해서 아래 칸에 붙여 넣어 주세요.");this.value="";return}
+    if(/\.pdf$/i.test(f.name)||f.type==="application/pdf"){impPdf(f);this.value="";return}
+    if(/^image\//.test(f.type)){impImg([f]);this.value="";return}
     var rd=new FileReader();
     rd.onload=function(ev){
       impLoadXLSX(function(){
