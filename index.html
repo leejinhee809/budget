@@ -453,17 +453,28 @@ $("fc").onclick=resetF;
 if(!S.items)S.items={hu:["신한","국민","삼성","우리","속초사랑 상품권"],me:["신한","속초사랑 상품권","온누리 상품권"]};
 if(!S.migKbChk){if(S.items.hu.indexOf("국민체크")<0){var _ki=S.items.hu.indexOf("국민");S.items.hu.splice(_ki>-1?_ki+1:S.items.hu.length,0,"국민체크")}S.migKbChk=1}
 var ITEMS=S.items,W={hu:"남편",me:"ME"},ST={hu:{oid:null,oc:false},me:{oid:null,oc:false}};
-/* 명세서 기준: 13일까지는 같은 달, 14일부터는 다음 달 */
-function bm(d){var y=+d.slice(0,4),m=+d.slice(5,7),dy=+d.slice(8,10);return dy<=13?d.slice(0,7):ymd(new Date(y,m,1)).slice(0,7)}
-function auto(w,it,k){return S.exp.reduce(function(s,e){return s+((e.w===w&&e.m===it&&bm(e.d)===k)?e.a:0)},0)}
-function lab(e){if(!e.m)return"";if(e.w)return W[e.w]+" "+e.m+" · "+(+bm(e.d).slice(5))+"월분";return e.m==="기타"&&e.x?"기타("+e.x+")":e.m}
+/* 카드별 결제 기간 (그날까지 쓴 것이 그달 카드값)
+   남편 카드: 13일 / ME 신한: 28일 / 속초사랑·온누리 상품권: 1일~말일 / 그 밖: 13일 */
+function cut(w,m){if(/상품권/.test(m||""))return 31;if(w==="me"&&m==="신한")return 28;return 13}
+function bm(d,w,m){var y=+d.slice(0,4),mo=+d.slice(5,7),dy=+d.slice(8,10);return dy<=cut(w,m)?d.slice(0,7):ymd(new Date(y,mo,1)).slice(0,7)}
+// 그달 카드값 기간 글자 (예: 10/14~11/13)
+function per(w,m,k){var c=cut(w,m),y=+k.slice(0,4),mo=+k.slice(5,7);if(c>=31)return mo+"/1~"+mo+"/"+new Date(y,mo,0).getDate();var p=new Date(y,mo-2,1);return (p.getMonth()+1)+"/"+(c+1)+"~"+mo+"/"+c}
+function auto(w,it,k){return S.exp.reduce(function(s,e){return s+((e.w===w&&e.m===it&&e.d&&bm(e.d,w,it)===k)?e.a:0)},0)}
+function autoF(w,it,k){return fixOf(k).reduce(function(s,f){return s+((f.w===w&&f.m===it)?(Number(f.a)||0):0)},0)}
+function lab(e){if(!e.m)return"";if(e.w)return W[e.w]+" "+e.m+" · "+(+bm(e.d,e.w,e.m).slice(5))+"월분";return e.m==="기타"&&e.x?"기타("+e.x+")":e.m}
 function cardsFor(w,k){
   var L=ITEMS[w].slice(),c=S.card[w][k]||{};
   Object.keys(c).forEach(function(n){if(c[n]&&L.indexOf(n)<0)L.push(n)});
-  S.exp.forEach(function(e){if(e.w===w&&e.m&&bm(e.d)===k&&L.indexOf(e.m)<0)L.push(e.m)});
+  S.exp.forEach(function(e){if(e.w===w&&e.m&&e.d&&bm(e.d,w,e.m)===k&&L.indexOf(e.m)<0)L.push(e.m)});
   return L;
 }
-function rowInfo(w,i,k){var n=cardsFor(w,k)[i],c=S.card[w][k]||{},au=auto(w,n,k);return au?"매일 지출 +"+won(au)+" → 합계 "+won((c[n]||0)+au):""}
+// 카드 칸 아래: 이 기간 매일 지출·고정 지출 누적 (확인용, 합계에는 안 들어감)
+function rowInfo(w,i,k){
+  var n=cardsFor(w,k)[i],a=auto(w,n,k),f=autoF(w,n,k),t=[];
+  if(a||f){t.push(per(w,n,k)+" 기록 "+won(a+f)+(f?" (매일 "+won(a)+" + 고정 "+won(f)+")":""))}
+  if(S.billAuto&&S.billAuto[w+"|"+k+"|"+n])t.push("🔔 자동 입력");
+  return t.join(" · ");
+}
 // 카드 전체 순서 (카드 설정에서 ▲▼로 변경) → 지출 입력 목록 순서
 function payList(){
   var L=[],seen={};
@@ -504,7 +515,7 @@ function panel(w){
   '<div id="ol_'+w+'"></div>'+
   '<div class="sm"><span>연금 · 보험 · 기타 합계</span><span id="os_'+w+'">0원</span></div>'+
   '<div class="r" style="margin-top:12px"><button class="g" style="flex:1" id="ob_'+w+'" data-ob="'+w+'">전체 이월</button></div></div>'+
-  '<div class="card"><div class="sm" style="margin:0"><span>총 합계 (카드값 + 기타)</span><span id="gs_'+w+'" style="font-size:20px">0원</span></div></div>';
+  '<div class="card"><div class="sm" style="margin:0"><span>이번 달 낼 금액 (카드값 + 연금·보험·기타)</span><span id="gs_'+w+'" style="font-size:20px">0원</span></div></div>';
 }
 $("p3").innerHTML=panel("hu");$("p4").innerHTML=panel("me");
 
@@ -533,7 +544,7 @@ function ens(w,k){matO(w,k)}
 })();
 function totC(w){
   var k=mk(),c=S.card[w][k]||{};
-  var s=cardsFor(w,k).reduce(function(t,n){return t+(c[n]||0)+auto(w,n,k)},0);
+  var s=cardsFor(w,k).reduce(function(t,n){return t+(c[n]||0)},0);   // 카드값 칸에 적힌 금액(명세서 결제금액)만
   var o=othOf(w,k).reduce(function(t,x){return t+x.a},0);
   $("cs_"+w).textContent=won(s);$("os_"+w).textContent=won(o);$("gs_"+w).textContent=won(s+o);
 }
@@ -542,7 +553,7 @@ function renderC(w){
   $("cc_"+w).innerHTML=cardsFor(w,k).map(function(n,i){return '<div style="margin-bottom:10px"><div class="r" style="align-items:center;margin-bottom:2px"><div style="flex:0 0 112px;font-size:14px">'+esc(n)+(ITEMS[w].indexOf(n)<0?' <span class="sb">(삭제됨)</span>':'')+'</div><input class="amt" inputmode="numeric" placeholder="0" data-w="'+w+'" data-ci="'+i+'" value="'+cm(c[n])+'"></div><div class="sb" id="ri_'+w+'_'+i+'" style="text-align:right">'+rowInfo(w,i,k)+'</div></div>'}).join("");
   var o=othOf(w,k),all=o.length>0&&o.every(function(x){return x.c}),carried=!S.oth[w][k]&&o.length>0;
   $("ol_"+w).innerHTML=(carried?'<div class="sb" style="margin-bottom:4px">지난달에서 이월됨</div>':'')+(o.length?o.map(function(x){
-    return '<div class="it"><div class="n">'+esc(x.n)+'</div><div>'+won(x.a)+'</div><button class="e" data-w="'+w+'" data-oe="'+x.id+'">수정</button><button class="c'+(x.c?' on':'')+'" data-w="'+w+'" data-oc="'+x.id+'">이월</button><button class="x" data-w="'+w+'" data-ox="'+x.id+'">삭제</button></div>'
+    return '<div class="it"><div class="n">'+esc(x.n)+'</div><div>'+won(x.a)+'</div><button class="c'+(x.c?' on':'')+'" data-w="'+w+'" data-oc="'+x.id+'">이월</button><button class="x" data-w="'+w+'" data-ox="'+x.id+'">삭제</button></div>'
   }).join(""):'<div class="em">등록된 항목이 없어요.</div>');
   $("ob_"+w).textContent=all?"전체 이월 해제":"전체 이월";
   totC(w);
@@ -567,7 +578,7 @@ document.addEventListener("input",function(ev){
   if(t.classList&&t.classList.contains("amt"))fmt(t);
   if(t.dataset&&t.dataset.ci!==undefined){
     var w=t.dataset.w,k=mk();S.card[w][k]=S.card[w][k]||{};
-    S.card[w][k][cardsFor(w,k)[+t.dataset.ci]]=num(t);save();totC(w);$("ri_"+w+"_"+t.dataset.ci).textContent=rowInfo(w,+t.dataset.ci,k);
+    var cn=cardsFor(w,k)[+t.dataset.ci];S.card[w][k][cn]=num(t);if(S.billAuto)delete S.billAuto[w+"|"+k+"|"+cn];save();totC(w);$("ri_"+w+"_"+t.dataset.ci).textContent=rowInfo(w,+t.dataset.ci,k);
   }
 });
 document.addEventListener("click",function(ev){
@@ -820,20 +831,20 @@ function chakPick(e){
 // 고정 지출: 현금 → 영수증 O/X, 속초사랑 상품권 → 체크카드/현금 (이름별로 한 번 고르면 매달 적용)
 function fixPick(f){
   if(typeof yeType!=="function"||!S.ye)return "";
-  var key=(f.w||"")+"|"+f.m,n=esc(f.n),bs='style="font-size:12px;padding:2px 8px;margin-left:4px"';
+  var key=(f.w||"")+"|"+f.m,n=esc(f.n),bs='style="font-size:12px;padding:2px 6px;margin-left:3px"';
   if(isChakKey(key)){
     var v=(S.ye.frc||{})[f.n];
     return '<span style="white-space:nowrap"><button class="c'+(v==="me"?' on':'')+'" data-frc="'+n+'|me" '+bs+'>'+(f.w==="hu"?"체크카드":"카드")+'</button><button class="c'+(v==="hu"?' on':'')+'" data-frc="'+n+'|hu" '+bs+'>현금</button>'+(v?'':'<span class="sb" style="color:var(--rd);margin-left:4px">선택</span>')+'</span>';
   }
   if(yeType(key)==="cash"){
     var x=(S.ye.nr||[]).indexOf(f.n)>-1,o=(S.ye.nrOk||[]).indexOf(f.n)>-1;
-    return '<span style="white-space:nowrap"><button class="c'+(o?' on':'')+'" data-nr="'+n+'|o" '+bs+'>영수증 O</button><button class="c'+(x?' on':'')+'" data-nr="'+n+'|x" '+bs+'>영수증 X</button>'+(x||o?'':'<span class="sb" style="color:var(--rd);margin-left:4px">선택</span>')+'</span>';
+    return '<span style="white-space:nowrap"><button class="c'+(o?' on':'')+'" data-nr="'+n+'|o" '+bs+'>증빙O</button><button class="c'+(x?' on':'')+'" data-nr="'+n+'|x" '+bs+'>증빙X</button>'+(x||o?'':'<span class="sb" style="color:var(--rd);margin-left:4px">선택</span>')+'</span>';
   }
   return "";
 }
 function row(e,withDate){
   var sub=[];if(withDate)sub.push(e.d+" ("+ago(e.d)+")");if(lab(e))sub.push(lab(e));
-  return '<div class="it"><div class="n">'+esc(e.n)+(e.c?'<span class="tg">'+esc(e.c)+'</span>':'')+(e.v&&e.v!=="-"?'<span class="tg">🚗 '+esc(e.v)+'</span>':'')+(e.sp?'<span class="tg">'+(e.sp==="mk"?"🏪 전통시장":"🚌 대중교통")+'</span>':'')+(e.nrx?'<span class="tg">영수증X</span>':'')+(YE_DUPK["e:"+e.id]==="yes"?'<span class="tg">중복</span>':YE_DUPK["e:"+e.id]==="no"?'<span class="tg">중복 아님</span>':'')+(e.sid?'<span class="tg">자동</span>':'')+(sub.length?'<div class="sb">'+esc(sub.join(" · "))+'</div>':'')+chakPick(e)+'</div><div'+(e.a<0?' style="color:var(--rd)"':'')+'>'+won(e.a)+'</div><button class="e" data-e="'+e.id+'">수정</button><button class="x" data-x="'+e.id+'">삭제</button></div>';
+  return '<div class="it"><div class="n">'+esc(e.n)+(e.c?'<span class="tg">'+esc(e.c)+'</span>':'')+(e.v&&e.v!=="-"?'<span class="tg">🚗 '+esc(e.v)+'</span>':'')+(e.sp?'<span class="tg">'+(e.sp==="mk"?"🏪 전통시장":"🚌 대중교통")+'</span>':'')+(e.nrx?'<span class="tg">증빙X</span>':'')+(YE_DUPK["e:"+e.id]==="yes"?'<span class="tg">중복</span>':YE_DUPK["e:"+e.id]==="no"?'<span class="tg">중복 아님</span>':'')+(e.sid?'<span class="tg">자동</span>':'')+(sub.length?'<div class="sb">'+esc(sub.join(" · "))+'</div>':'')+chakPick(e)+'</div><div'+(e.a<0?' style="color:var(--rd)"':'')+'>'+won(e.a)+'</div><button class="e" data-e="'+e.id+'">수정</button><button class="x" data-x="'+e.id+'">삭제</button></div>';
 }
 function renderCat(k){
   var t={};CATS.forEach(function(c){t[c]=0});
@@ -1018,6 +1029,11 @@ function pullInc(){
       var idn=Number(it.id)||0;if(idn<=base)return;   // 이미 받은 번호는 건너뜀 (중복 방지)
       if(idn>mx)mx=idn;
       if(!(it.amount>0))return;
+      if(it.kind==="bill"){                                  // 카드 결제금액 알림 → 카드값 칸
+        var bw=it.who==="me"?"me":"hu",bk=/^\d{4}-\d{2}$/.test(it.bm||"")?it.bm:ymd(new Date(it.time)).slice(0,7),bc=it.card||"국민";
+        S.card[bw][bk]=S.card[bw][bk]||{};S.card[bw][bk][bc]=it.amount;
+        (S.billAuto=S.billAuto||{})[bw+"|"+bk+"|"+bc]=1;ch++;return;
+      }
       // 매크로가 수입만 골라 보내므로 확인 없이 바로 기록
       // 누구: 국민은행 → 남편, 신한은행 → 나 (Apps Script가 who로 알려줌)
       var kw=depKwMatch(it),rule=S.depRule[it.from];
@@ -1025,7 +1041,7 @@ function pullInc(){
       depApply(it,it.who==="hu"?"hu":"me",kw?kw.n:null);     // 항목 이름: 키워드 이름 또는 알림 속 이름
       ch++;
     });
-    if(mx!==base||ch){S.depSince=mx;save();renderI()}
+    if(mx!==base||ch){S.depSince=mx;save();render()}
   }).catch(function(){}).then(function(){depPulling=false});
 }
 function renderDep(){
@@ -1100,6 +1116,7 @@ function pull(manual){
     (j.items||[]).forEach(function(it){
       var idn=Number(it.id)||0;if(idn>mx)mx=idn;
       if(have[it.id]||!(it.amount>0))return;
+      if(/카드\s*대금|결제\s*금액|결제\s*예정|청구\s*금액/.test(String(it.raw||""))&&!/승인/.test(String(it.raw||"")))return;  // 결제금액 안내는 지출 아님
       var p=mapPay(it),dt=new Date(it.time);if(isNaN(dt.getTime()))dt=new Date();
       var cancel=it.type==="취소",mer=it.merchant||(it.card+" 결제");
       if(it.card==="KB국민"||/국민/.test(it.card||"")){var km=kbMerchant(it.raw);if(km)mer=km}        // KB: 알림 끝의 사용처
@@ -1387,10 +1404,10 @@ function renderNR(y){
   var bt=function(attr,v,on,t){return '<button class="c'+(on?' on':'')+'" data-'+attr+'="'+v+'" style="font-size:12px;padding:3px 8px">'+t+'</button>'};
   var fLine=function(n){var off=nr.indexOf(n)>-1,chk=off||ok.indexOf(n)>-1;
     return '<div class="it"><div class="n">'+esc(n)+'<span class="tg">고정</span><div class="sb">매달 · '+G[n].c+'건</div></div><div style="margin-right:4px'+(off?';color:var(--sub);text-decoration:line-through':'')+'">'+won(G[n].a)+'</div>'+
-      bt("nr",esc(n)+'|o',chk&&!off,"영수증 O")+bt("nr",esc(n)+'|x',off,"영수증 X")+'</div>'};
+      bt("nr",esc(n)+'|o',chk&&!off,"증빙O")+bt("nr",esc(n)+'|x',off,"증빙X")+'</div>'};
   var eLine=function(e){
     return '<div class="it"><div class="n">'+esc(e.n||"현금")+'<div class="sb">'+e.d+'</div></div><div style="margin-right:4px'+(e.nrx?';color:var(--sub);text-decoration:line-through':'')+'">'+won(e.a)+'</div>'+
-      bt("nre",e.id+'|o',e.nro,"영수증 O")+bt("nre",e.id+'|x',e.nrx,"영수증 X")+'</div>'};
+      bt("nre",e.id+'|o',e.nro,"증빙O")+bt("nre",e.id+'|x',e.nrx,"증빙X")+'</div>'};
   var PF=fo.filter(function(n){return nr.indexOf(n)<0&&ok.indexOf(n)<0}),DF=fo.filter(function(n){return PF.indexOf(n)<0});
   var PE=E.filter(function(e){return !e.nrx&&!e.nro}),DE=E.filter(function(e){return e.nrx||e.nro});
   var P=PF.map(fLine).concat(PE.map(eLine)),max=10;
