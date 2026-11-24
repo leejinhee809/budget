@@ -293,6 +293,7 @@ input[type=search]{-webkit-appearance:none}
     <div class="r"><input id="siu" placeholder="입금 알림 웹앱 주소 (수익 자동 입력, 선택)" autocomplete="off"></div>
     <div class="r"><button id="ssv" class="g bt">설정 저장</button><button id="sgo" class="bt">지금 불러오기</button></div>
     <div class="sb" id="syn"></div>
+    <div class="sb" id="dps"></div>
     <h2 style="margin-top:16px">기억한 분류</h2>
     <div id="mml"></div>
     </div>
@@ -1018,13 +1019,15 @@ $("dka").onclick=function(){
   if(!k||!n){note("키워드와 수입 항목을 적어 주세요.");return}
   (S.depKw=S.depKw||[]).push({k:k,n:n,w:w,to:w});save();$("dkk").value="";$("dkn").value="";renderI();note("등록했어요. 다음 입금부터 자동으로 들어가요.");
 };
+function dmsg(t,bad){var m=$("dps");if(!m)return;m.textContent=t;m.style.color=bad?"var(--rd)":"var(--sub)"}
 function pullInc(){
-  if(!SY.iu||!SY.tk||depPulling)return;depPulling=true;
+  if(!SY.iu){dmsg("입금: 입금 알림 웹앱 주소가 비어 있어요",1);return}
+  if(!SY.tk||depPulling)return;depPulling=true;
   S.depPend=S.depPend||[];S.depRule=S.depRule||{};
   var u=SY.iu+(SY.iu.indexOf("?")>-1?"&":"?")+"token="+encodeURIComponent(SY.tk)+"&since="+(S.depSince||0);
   fetch(u).then(function(r){return r.json()}).then(function(j){
-    if(!j||!j.ok)return;
-    var base=S.depSince||0,mx=base,ch=0;
+    if(!j||!j.ok){dmsg("입금 불러오기 실패: "+(j&&j.error?j.error:"응답 오류"),1);return}
+    var base=S.depSince||0,mx=base,ch=0,got=(j.items||[]).length;
     (j.items||[]).forEach(function(it){
       var idn=Number(it.id)||0;if(idn<=base)return;   // 이미 받은 번호는 건너뜀 (중복 방지)
       if(idn>mx)mx=idn;
@@ -1042,7 +1045,8 @@ function pullInc(){
       ch++;
     });
     if(mx!==base||ch){S.depSince=mx;save();render()}
-  }).catch(function(){}).then(function(){depPulling=false});
+    dmsg(ch?"✔ 입금·결제금액 "+ch+"건을 넣었어요 ("+hm()+")":"입금: 새 내역 없음 ("+hm()+" · 시트 "+got+"건 중 이미 받은 것 제외)");
+  }).catch(function(e){dmsg("입금 불러오기 실패: 입금 알림 웹앱 주소·인터넷을 확인해 주세요",1)}).then(function(){depPulling=false});
 }
 function renderDep(){
   $("dpc").className="card hide";return;   // 입금 자동 입력 칸은 숨김 (자동 입력 기능은 그대로 동작)
